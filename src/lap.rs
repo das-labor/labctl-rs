@@ -3,6 +3,7 @@ pub trait LapPacket {
 }
 
 use crate::can::{CanPacket, CanAddr};
+use std::cmp;
 
 //#[derive(FromPrimitive)]
 #[derive(Clone, Copy)]
@@ -34,5 +35,75 @@ impl LapPacket for SetLampPacket {
             dest_port: dst.1,
             payload: vec![self.mode as u8, self.lamp_id, self.value]
         }
+    }
+}
+
+pub struct ClearBorgText;
+
+impl LapPacket for ClearBorgText {
+    fn to_can(&self, src: CanAddr, dst: CanAddr) -> CanPacket {
+        CanPacket {
+            src_addr: src.0,
+            dest_addr: dst.0,
+            src_port: src.1,
+            dest_port: dst.1,
+            payload: vec![0x02]
+        }
+    }
+}
+
+pub struct BorgMode(pub u8);
+
+impl LapPacket for BorgMode {
+    fn to_can(&self, src: CanAddr, dst: CanAddr) -> CanPacket {
+        CanPacket {
+            src_addr: src.0,
+            dest_addr: dst.0,
+            src_port: src.1,
+            dest_port: dst.1,
+            payload: vec![0x01, self.0]
+        }
+    }
+}
+
+pub struct AppendBorgText {
+    text: [u8; 7]
+}
+
+impl LapPacket for AppendBorgText {
+    fn to_can(&self, src: CanAddr, dst: CanAddr) -> CanPacket {
+        let payload = [0x03].iter()
+            .chain(self.text.iter())
+            .map(|i| *i)
+            .collect();
+        CanPacket {
+            src_addr: src.0,
+            dest_addr: dst.0,
+            src_port: src.1,
+            dest_port: dst.1,
+            payload
+        }
+    }
+}
+
+pub fn set_scroll_text(input: &str, src: CanAddr, dst: CanAddr) -> Vec<CanPacket> {
+    let input_data = input.as_bytes();
+    let mut buf = Vec::with_capacity(2 + input.len() / 7);
+    buf.push(ClearBorgText.to_can(src, dst));
+    let mut idx = 0;
+    while idx < input.len() {
+        let substr = &input_data[idx..];
+        let sub = &substr[..cmp::min(substr.len(), 7)];
+        let mut text = [0; 7];
+        copy_data(&sub, &mut text);
+        buf.push(AppendBorgText { text }.to_can(src, dst));
+        idx += 7;
+    }
+    buf
+}
+
+fn copy_data(src: &[u8], dest: &mut [u8]) {
+    for (idx, el) in src.iter().enumerate() {
+        dest[idx] = *el;
     }
 }

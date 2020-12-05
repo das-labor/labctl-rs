@@ -1,13 +1,36 @@
 use std::{io, fmt};
 use byteorder::{ReadBytesExt, LittleEndian, WriteBytesExt};
-use std::io::{Cursor, Seek, SeekFrom};
+use std::io::{SeekFrom, Seek, Cursor, Read};
+use std::str::FromStr;
+use failure::Fail;
+
+#[derive(Fail, Debug)]
+#[fail(display = "Could not parse CAN address")]
+pub struct CanAddrParseError;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct CanAddr(pub u8, pub u8);
 
 impl fmt::Display for CanAddr {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:2x}:{:2x}", self.0, self.1)
+        write!(f, "{:02x}:{:02x}", self.0, self.1)
+    }
+}
+
+impl FromStr for CanAddr {
+    type Err = CanAddrParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut split = s.split(':');
+        if let (Some(addr), Some(port), None) = (split.next(), split.next(), split.next()) {
+            let num_addr = u8::from_str_radix(addr, 16).
+                map_err(|_| CanAddrParseError)?;
+            let num_port = u8::from_str_radix(port, 16).
+                map_err(|_| CanAddrParseError)?;
+            Ok(CanAddr(num_addr, num_port))
+        } else {
+            Err(CanAddrParseError)
+        }
     }
 }
 
@@ -48,7 +71,7 @@ impl CanPacket {
 
         let mut payload = Vec::new();
         //let read = r.into_reader();
-        let dlc = read.read_u8()?;
+        let _dlc = read.read_u8()?;
         read.read_to_end(&mut payload)?;
 
 
@@ -71,14 +94,28 @@ impl CanPacket {
     }
 }
 
+pub fn read_packet<R: Read>(read: &mut R) -> Result<CanPacket, io::Error> {
+    let mut buf = Vec::new();
+    let size = read.read_u8()?;
+    let kind = read.read_u8()?;
+
+    buf.resize(size as usize, 0);
+    read.read_exact(&mut buf)?;
+    let mut c = Cursor::new(buf);
+    Ok(CanPacket::read(&mut c)?)
+}
+
 pub fn write_packet_to_cand<W: io::Write>(w: &mut W, p: &CanPacket) -> io::Result<()> {
+
+    println!("Writing CAN packet: {:?}", p);
+
     let mut cur = Cursor::new(Vec::new());
     p.write(&mut cur)?;
     let buf = cur.into_inner();
 
     w.write_u8(buf.len() as u8)?;
-    w.write_u8(0x11);
-    w.write_all(&buf);
+    w.write_u8(0x11)?;
+    w.write_all(&buf)?;
     Ok(())
 }
 
@@ -87,7 +124,6 @@ fn test_recode() {
     let input = CanPacket {
         src_addr: 0x42,
         dest_addr: 0xaa,
-        dlc: 2,
         src_port: 0b101010,
         dest_port: 0b110011,
         payload: vec![0x13, 0x37]
