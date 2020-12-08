@@ -3,6 +3,8 @@ use byteorder::{ReadBytesExt, LittleEndian, WriteBytesExt};
 use std::io::{SeekFrom, Seek, Cursor, Read};
 use std::str::FromStr;
 use failure::Fail;
+#[cfg(feature = "async")]
+use tokio::io::{AsyncWrite, AsyncWriteExt, AsyncRead, AsyncReadExt};
 
 #[derive(Fail, Debug)]
 #[fail(display = "Could not parse CAN address")]
@@ -34,7 +36,7 @@ impl FromStr for CanAddr {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct CanPacket {
     pub src_addr: u8,
     pub dest_addr: u8,
@@ -105,9 +107,19 @@ pub fn read_packet<R: Read>(read: &mut R) -> Result<CanPacket, io::Error> {
     Ok(CanPacket::read(&mut c)?)
 }
 
-pub fn write_packet_to_cand<W: io::Write>(w: &mut W, p: &CanPacket) -> io::Result<()> {
+#[cfg(feature = "async")]
+pub async fn read_packet_async<R: AsyncRead + Unpin>(read: &mut R) -> Result<CanPacket, io::Error> {
+    let mut buf = Vec::new();
+    let size = read.read_u8().await?;
+    let kind = read.read_u8().await?;
 
-    println!("Writing CAN packet: {:?}", p);
+    buf.resize(size as usize, 0);
+    read.read_exact(&mut buf).await?;
+    let mut c = Cursor::new(buf);
+    Ok(CanPacket::read(&mut c)?)
+}
+
+pub fn write_packet_to_cand<W: io::Write>(w: &mut W, p: &CanPacket) -> io::Result<()> {
 
     let mut cur = Cursor::new(Vec::new());
     p.write(&mut cur)?;
@@ -116,6 +128,21 @@ pub fn write_packet_to_cand<W: io::Write>(w: &mut W, p: &CanPacket) -> io::Resul
     w.write_u8(buf.len() as u8)?;
     w.write_u8(0x11)?;
     w.write_all(&buf)?;
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+pub async fn write_packet_to_cand_async<W: AsyncWrite + Unpin>(w: &mut W, p: &CanPacket) -> io::Result<()> {
+
+    println!("Writing CAN packet: {:?}", p);
+
+    let mut cur = Cursor::new(Vec::new());
+    p.write(&mut cur)?;
+    let buf = cur.into_inner();
+
+    w.write_u8(buf.len() as u8).await?;
+    w.write_u8(0x11).await?;
+    w.write_all(&buf).await?;
     Ok(())
 }
 
