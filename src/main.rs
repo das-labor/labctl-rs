@@ -12,6 +12,7 @@ use labctl::can::CanAddr;
 use labctl::lap::{BorgMode, LapPacket};
 use std::thread;
 use std::time::Duration;
+use labctl::cand::Message;
 
 fn args<'a, 'b>() -> clap::App<'a, 'b> {
     clap_app!{labctl =>
@@ -41,25 +42,53 @@ fn args<'a, 'b>() -> clap::App<'a, 'b> {
 
 fn monitor<R: Read>(sock: &mut R) -> Result<(), failure::Error>{
     loop {
-        let can_packet = labctl::can::read_packet(sock)?;
-        println!(
-            "{:02x}:{:02x} -> {:02x}:{:02x} {}",
-            can_packet.src_addr,
-            can_packet.src_port,
-            can_packet.dest_addr,
-            can_packet.dest_port,
-            can_packet.payload
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        let message = labctl::cand::read_packet(sock)?;
+        match message {
+            Message::Frame(can_packet) => {
+                println!(
+                    "    {} -> {} {}",
+                    can_packet.src,
+                    can_packet.dest,
+                    can_packet.payload
+                        .iter()
+                        .map(|b| format!("{:02x}", b))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
+            }
+            Message::Reset { cause } => {
+                println!("[*] Gateway Reset, cause: {}", cause)
+            }
+            Message::Ping => {
+                println!("[*] Ping Response")
+            }
+            Message::Resync => {
+                // Will usually not be transmitted to clients
+                println!("[?] Ping Response")
+            }
+            Message::VersionRequest => {
+                // Will usually not be transmitted to clients
+                println!("[?] Version Request")
+            }
+            Message::VersionReply { major, minor } => {
+                println!("[*] Gateway has version {}.{}", major, minor)
+            }
+            Message::FirmwareIdRequest => {
+                println!("[?] Firmware ID Response")
+            }
+            Message::FirmwareIdResponse(fwid) => {
+                println!("[*] Firmware ID String is {:?}", fwid);
+            }
+            Message::Unknown { kind, payload } => {
+                println!("[!] Unknown Packet (Type {}): {}", kind, hex::encode(&payload))
+            }
+        }
     }
 }
 
 fn borg_text<W: Write>(write: &mut W, text: &str, dst: CanAddr) -> Result<(), failure::Error> {
-    for p in labctl::lap::set_scroll_text(text, CanAddr(0, 0x23), dst) {
-        labctl::can::write_packet_to_cand(write, &p)?;
+    for p in labctl::lap::set_scroll_text(text, CanAddr::new(0, 0x23)?, dst) {
+        labctl::cand::write_packet_to_cand(write, &Message::Frame(p))?;
         write.flush()?;
         thread::sleep(Duration::from_millis(30));
     }
@@ -67,7 +96,9 @@ fn borg_text<W: Write>(write: &mut W, text: &str, dst: CanAddr) -> Result<(), fa
 }
 
 fn borg_mode<W: Write>(write: &mut W, mode: u8, dst: CanAddr) -> Result<(), failure::Error> {
-    labctl::can::write_packet_to_cand(write, &labctl::lap::BorgMode(mode).to_can(CanAddr(0, 0x23), dst))?;
+    let p = labctl::lap::BorgMode(mode)
+        .to_can(CanAddr::new(0, 0x23)?, dst);
+    labctl::cand::write_packet_to_cand(write, &Message::Frame(p))?;
     Ok(())
 }
 

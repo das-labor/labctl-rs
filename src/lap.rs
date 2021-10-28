@@ -27,12 +27,10 @@ pub struct SetLampPacket {
 }
 
 impl LapPacket for SetLampPacket {
-    fn to_can(&self, src: CanAddr, dst: CanAddr) -> CanPacket {
+    fn to_can(&self, src: CanAddr, dest: CanAddr) -> CanPacket {
         CanPacket {
-            src_addr: src.0,
-            dest_addr: dst.0,
-            src_port: src.1,
-            dest_port: dst.1,
+            src,
+            dest,
             payload: vec![self.mode as u8, self.lamp_id, self.value]
         }
     }
@@ -41,12 +39,10 @@ impl LapPacket for SetLampPacket {
 pub struct ClearBorgText;
 
 impl LapPacket for ClearBorgText {
-    fn to_can(&self, src: CanAddr, dst: CanAddr) -> CanPacket {
+    fn to_can(&self, src: CanAddr, dest: CanAddr) -> CanPacket {
         CanPacket {
-            src_addr: src.0,
-            dest_addr: dst.0,
-            src_port: src.1,
-            dest_port: dst.1,
+            src,
+            dest,
             payload: vec![0x02]
         }
     }
@@ -55,12 +51,10 @@ impl LapPacket for ClearBorgText {
 pub struct BorgMode(pub u8);
 
 impl LapPacket for BorgMode {
-    fn to_can(&self, src: CanAddr, dst: CanAddr) -> CanPacket {
+    fn to_can(&self, src: CanAddr, dest: CanAddr) -> CanPacket {
         CanPacket {
-            src_addr: src.0,
-            dest_addr: dst.0,
-            src_port: src.1,
-            dest_port: dst.1,
+            src,
+            dest,
             payload: vec![0x01, self.0]
         }
     }
@@ -71,16 +65,14 @@ pub struct AppendBorgText {
 }
 
 impl LapPacket for AppendBorgText {
-    fn to_can(&self, src: CanAddr, dst: CanAddr) -> CanPacket {
+    fn to_can(&self, src: CanAddr, dest: CanAddr) -> CanPacket {
         let payload = [0x03].iter()
             .chain(self.text.iter())
             .map(|i| *i)
             .collect();
         CanPacket {
-            src_addr: src.0,
-            dest_addr: dst.0,
-            src_port: src.1,
-            dest_port: dst.1,
+            src,
+            dest,
             payload
         }
     }
