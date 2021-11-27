@@ -1,7 +1,7 @@
 use std::{fmt, io};
 use std::fmt::Formatter;
 use std::io::{Cursor, Read, Write};
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use crate::can::CanPacket;
 use crate::error::Result;
 #[cfg(feature = "async")]
@@ -17,6 +17,8 @@ pub enum Message {
     VersionReply { major: u8, minor: u8 },
     FirmwareIdRequest,
     FirmwareIdResponse(String),
+    BusPowerRequest,
+    BusPowerResponse { v: u16, i: u16, reference: u16, gnd: u16 },
     Unknown { kind: u8, payload:  Vec<u8> }
 }
 
@@ -36,6 +38,13 @@ impl Message {
             }),
             (0x18, 0) => Ok(Message::FirmwareIdRequest),
             (0x18, _) => Ok(Message::FirmwareIdResponse(String::from_utf8_lossy(buf).into_owned())),
+            (0x1b, 0) => Ok(Message::BusPowerRequest),
+            (0x1b, 8) => Ok(Message::BusPowerResponse {
+                v: ReadBytesExt::read_u16::<LittleEndian>(&mut cur)?,
+                i: ReadBytesExt::read_u16::<LittleEndian>(&mut cur)?,
+                reference: ReadBytesExt::read_u16::<LittleEndian>(&mut cur)?,
+                gnd: ReadBytesExt::read_u16::<LittleEndian>(&mut cur)?
+            }),
             (_, _) => Ok(Message::Unknown {kind, payload: Vec::from(buf)})
         }
     }
@@ -50,7 +59,9 @@ impl Message {
             Message::VersionReply { .. } => 0x17,
             Message::FirmwareIdRequest => 0x18,
             Message::FirmwareIdResponse(_) => 0x18,
-            Message::Unknown { kind, .. } => *kind
+            Message::Unknown { kind, .. } => *kind,
+            Message::BusPowerRequest => 0x1b,
+            Message::BusPowerResponse { .. } => 0x1b
         }
     }
 
@@ -75,6 +86,13 @@ impl Message {
             }
             Message::Unknown { payload, .. } => {
                 write.write_all(&payload)?;
+            }
+            Message::BusPowerRequest => {}
+            Message::BusPowerResponse { v, i, reference, gnd } => {
+                write.write_u16::<LittleEndian>(*v)?;
+                write.write_u16::<LittleEndian>(*i)?;
+                write.write_u16::<LittleEndian>(*reference)?;
+                write.write_u16::<LittleEndian>(*gnd)?;
             }
         }
         Ok(())
@@ -122,6 +140,17 @@ impl fmt::Debug for Message {
                 s.field("kind", kind);
                 s.field("payload", payload);
                 s.finish()
+            }
+            Message::BusPowerRequest => {
+                f.write_str("Message::BusPowerRequest")
+            }
+            Message::BusPowerResponse { v, i, reference, gnd } => {
+                let mut tuple = f.debug_struct("Message::BusPowerResponse");
+                tuple.field("v", v);
+                tuple.field("i", i);
+                tuple.field("ref", reference);
+                tuple.field("gnd", gnd);
+                tuple.finish()
             }
         }
     }
